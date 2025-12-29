@@ -83,25 +83,87 @@
     </div>
 
     <script>
+        // Mobile-responsive configuration
+        const BREAKPOINTS = {
+            mobile: 480,
+            tablet: 768,
+            desktop: 1024
+        };
+
+        function getDeviceType() {
+            const width = window.innerWidth;
+            if (width < BREAKPOINTS.mobile) return 'mobile-small';
+            if (width < BREAKPOINTS.tablet) return 'mobile';
+            if (width < BREAKPOINTS.desktop) return 'tablet';
+            return 'desktop';
+        }
+
+        // Device-specific style multipliers
+        const DEVICE_STYLES = {
+            'mobile-small': {
+                ringSize: 28,
+                strokeWidth: 6,
+                amplitudeMin: 4,
+                amplitudeMax: 12,
+                repelRadius: 60,
+                minDistance: 65,
+                preferredDistance: 75
+            },
+            'mobile': {
+                ringSize: 35,
+                strokeWidth: 8,
+                amplitudeMin: 5,
+                amplitudeMax: 15,
+                repelRadius: 80,
+                minDistance: 80,
+                preferredDistance: 90
+            },
+            'tablet': {
+                ringSize: 42,
+                strokeWidth: 11,
+                amplitudeMin: 6,
+                amplitudeMax: 20,
+                repelRadius: 100,
+                minDistance: 100,
+                preferredDistance: 110
+            },
+            'desktop': {
+                ringSize: 50,
+                strokeWidth: 14,
+                amplitudeMin: 8,
+                amplitudeMax: 25,
+                repelRadius: 120,
+                minDistance: 120,
+                preferredDistance: 130
+            }
+        };
+
+        function getResponsiveValues() {
+            const deviceType = getDeviceType();
+            return DEVICE_STYLES[deviceType];
+        }
+
+        const responsive = getResponsiveValues();
+
         const CONFIG = {
             ringCount: 38,
             colors: ['#000000', '#DA3B32', '#153D65', '#0F5C2F'],
-            ringSize: 50,
-            strokeWidth: 14,
+            ringSize: responsive.ringSize,
+            strokeWidth: responsive.strokeWidth,
             animation: {
-                amplitudeMin: 8,
-                amplitudeMax: 25,
+                amplitudeMin: responsive.amplitudeMin,
+                amplitudeMax: responsive.amplitudeMax,
                 speedMin: 0.0003,
                 speedMax: 0.0015
             },
             mouse: {
-                repelRadius: 120,
+                repelRadius: responsive.repelRadius,
                 repelStrength: 0.08,
                 returnSpeed: 0.03
             },
             spacing: {
-                minDistance: 120,
-                preferredDistance: 130
+                minDistance: responsive.minDistance,
+                preferredDistance: responsive.preferredDistance
             },
             patterns: {
                 diagonal: {
@@ -618,10 +680,43 @@
             });
         }
 
+        // Update CONFIG and ring styles when viewport changes
+        function updateResponsiveConfig() {
+            const newResponsive = getResponsiveValues();
+
+            // Update CONFIG values
+            CONFIG.ringSize = newResponsive.ringSize;
+            CONFIG.strokeWidth = newResponsive.strokeWidth;
+            CONFIG.animation.amplitudeMin = newResponsive.amplitudeMin;
+            CONFIG.animation.amplitudeMax = newResponsive.amplitudeMax;
+            CONFIG.mouse.repelRadius = newResponsive.repelRadius;
+            CONFIG.spacing.minDistance = newResponsive.minDistance;
+            CONFIG.spacing.preferredDistance = newResponsive.preferredDistance;
+
+            // Update existing rings with new sizes
+            rings.forEach(ring => {
+                ring.radius = CONFIG.ringSize;
+                ring.strokeWidth = CONFIG.strokeWidth;
+                ring.amplitude = randomRange(CONFIG.animation.amplitudeMin, CONFIG.animation.amplitudeMax);
+                ring.element.setAttribute('r', ring.radius);
+                ring.element.setAttribute('stroke-width', ring.strokeWidth);
+            });
+        }
+
         let resizeTimeout;
+        let lastDeviceType = getDeviceType();
+
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimeout);
             resizeTimeout = setTimeout(() => {
+                const newDeviceType = getDeviceType();
+
+                // Only update ring styles if device type changed
+                if (newDeviceType !== lastDeviceType) {
+                    lastDeviceType = newDeviceType;
+                    updateResponsiveConfig();
+                }
+
                 regenerateRings(currentPattern);
             }, 250);
         });
