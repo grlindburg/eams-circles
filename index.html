@@ -107,7 +107,42 @@
                 amplitudeMax: 12,
                 repelRadius: 60,
                 minDistance: 65,
-                preferredDistance: 75
+                preferredDistance: 75,
+                patterns: {
+                    diagonal: {
+                        corridorWidthMultiplier: 0.35,
+                        paddingX: 0.08,
+                        paddingY: 0.10,
+                        pullStrength: 0.55,
+                        pullChance: 0.35
+                    },
+                    dnaHelix: {
+                        amplitude: 40,
+                        frequency: 2.5,
+                        edgePadding: 0.08,
+                        verticalMode: true
+                    },
+                    honeycomb: {
+                        cellSize: 70,
+                        forcedColumns: 4,
+                        jitter: 5
+                    },
+                    socialGraph: {
+                        verticalLayout: true,
+                        clusterPositions: [
+                            { x: 0.5, y: 0.12 },
+                            { x: 0.5, y: 0.37 },
+                            { x: 0.5, y: 0.63 },
+                            { x: 0.5, y: 0.88 }
+                        ],
+                        ringSpacing: 55
+                    },
+                    waveFlow: {
+                        verticalMode: true,
+                        waveCount: 3,
+                        baseAmplitude: 0.12
+                    }
+                }
             },
             'mobile': {
                 ringSize: 35,
@@ -116,7 +151,42 @@
                 amplitudeMax: 15,
                 repelRadius: 80,
                 minDistance: 80,
-                preferredDistance: 90
+                preferredDistance: 90,
+                patterns: {
+                    diagonal: {
+                        corridorWidthMultiplier: 0.4,
+                        paddingX: 0.10,
+                        paddingY: 0.10,
+                        pullStrength: 0.5,
+                        pullChance: 0.30
+                    },
+                    dnaHelix: {
+                        amplitude: 55,
+                        frequency: 2.2,
+                        edgePadding: 0.10,
+                        verticalMode: true
+                    },
+                    honeycomb: {
+                        cellSize: 85,
+                        forcedColumns: 5,
+                        jitter: 6
+                    },
+                    socialGraph: {
+                        verticalLayout: true,
+                        clusterPositions: [
+                            { x: 0.5, y: 0.12 },
+                            { x: 0.5, y: 0.37 },
+                            { x: 0.5, y: 0.63 },
+                            { x: 0.5, y: 0.88 }
+                        ],
+                        ringSpacing: 65
+                    },
+                    waveFlow: {
+                        verticalMode: true,
+                        waveCount: 3,
+                        baseAmplitude: 0.10
+                    }
+                }
             },
             'tablet': {
                 ringSize: 42,
@@ -125,7 +195,8 @@
                 amplitudeMax: 20,
                 repelRadius: 100,
                 minDistance: 100,
-                preferredDistance: 110
+                preferredDistance: 110,
+                patterns: {}
             },
             'desktop': {
                 ringSize: 50,
@@ -134,13 +205,27 @@
                 amplitudeMax: 25,
                 repelRadius: 120,
                 minDistance: 120,
-                preferredDistance: 130
+                preferredDistance: 130,
+                patterns: {}
             }
         };
 
         function getResponsiveValues() {
             const deviceType = getDeviceType();
             return DEVICE_STYLES[deviceType];
+        }
+
+        // Helper to get pattern config merged with mobile overrides
+        function getPatternConfig(patternName) {
+            const deviceType = getDeviceType();
+            const devicePatterns = DEVICE_STYLES[deviceType].patterns || {};
+            return devicePatterns[patternName] || {};
+        }
+
+        // Check if we're in portrait mobile mode
+        function isPortraitMobile() {
+            const deviceType = getDeviceType();
+            return deviceType.includes('mobile') && window.innerHeight > window.innerWidth;
         }
 
         const responsive = getResponsiveValues();
@@ -262,9 +347,22 @@
             const height = window.innerHeight;
             const centerX = width / 2;
             const centerY = height / 2;
-            const paddingX = width * 0.12;
-            const paddingY = height * 0.12;
-            const corridorWidth = Math.min(width, height) * 0.5;
+            const mobilePortrait = isPortraitMobile();
+            const mobileConfig = getPatternConfig('diagonal');
+
+            // Use mobile-specific padding or defaults
+            const paddingX = width * (mobileConfig.paddingX || 0.12);
+            const paddingY = height * (mobileConfig.paddingY || 0.12);
+
+            // Narrower corridor on mobile portrait
+            const corridorMultiplier = mobileConfig.corridorWidthMultiplier || 0.5;
+            const corridorWidth = mobilePortrait
+                ? width * corridorMultiplier
+                : Math.min(width, height) * corridorMultiplier;
+
+            const pullStrength = mobileConfig.pullStrength || 0.4;
+            const pullChance = mobileConfig.pullChance || 0.2;
+
             const positions = [];
 
             for (let i = 0; i < total; i++) {
@@ -272,14 +370,21 @@
                 const baseX = progress * (width - paddingX * 2) + paddingX;
                 const baseY = (1 - progress) * (height - paddingY * 2) + paddingY;
 
-                const offsetX = (Math.random() - 0.5) * corridorWidth;
-                const offsetY = (Math.random() - 0.5) * corridorWidth;
+                let offsetX, offsetY;
+                if (mobilePortrait) {
+                    // On mobile portrait: reduce horizontal spread, increase vertical
+                    offsetX = (Math.random() - 0.5) * corridorWidth * 0.6;
+                    offsetY = (Math.random() - 0.5) * corridorWidth * 1.2;
+                } else {
+                    offsetX = (Math.random() - 0.5) * corridorWidth;
+                    offsetY = (Math.random() - 0.5) * corridorWidth;
+                }
 
                 let x = Math.max(paddingX, Math.min(width - paddingX, baseX + offsetX));
                 let y = Math.max(paddingY, Math.min(height - paddingY, baseY + offsetY));
 
-                if (Math.random() < 0.2) {
-                    const pullStrength = 0.4;
+                // More rings pulled to center on mobile
+                if (Math.random() < pullChance) {
                     x = x + (centerX - x) * pullStrength;
                     y = y + (centerY - y) * pullStrength;
                 }
@@ -299,21 +404,57 @@
         }
 
         function getDNAHelixPosition(index, total) {
-            const config = CONFIG.patterns.dnaHelix;
+            const baseConfig = CONFIG.patterns.dnaHelix;
+            const mobileConfig = getPatternConfig('dnaHelix');
             const width = window.innerWidth;
             const height = window.innerHeight;
             const idealSpacing = CONFIG.spacing.preferredDistance;
+            const mobilePortrait = isPortraitMobile();
 
             const strand = index % 2;
             const strandIndex = Math.floor(index / 2);
             const strandTotal = Math.ceil(total / 2);
 
-            const helixAmplitude = config.amplitude;
-            const basePaddingPercent = config.edgePadding;
+            // Use mobile amplitude/frequency if available
+            const helixAmplitude = mobileConfig.amplitude || baseConfig.amplitude;
+            const frequency = mobileConfig.frequency || baseConfig.frequency;
+            const basePaddingPercent = mobileConfig.edgePadding || baseConfig.edgePadding;
+
+            // Vertical mode for mobile portrait: helix runs top-to-bottom
+            if (mobilePortrait && mobileConfig.verticalMode) {
+                const paddingX = Math.max(width * 0.15, helixAmplitude + 40);
+                const paddingY = height * basePaddingPercent;
+
+                const spineLength = height - paddingY * 2;
+                const maxSpacing = strandTotal > 1 ? spineLength / (strandTotal - 1) : 0;
+                const actualSpacing = Math.min(idealSpacing, maxSpacing);
+                const usedLength = (strandTotal - 1) * actualSpacing;
+                const startOffset = (spineLength - usedLength) / 2;
+
+                const progress = strandTotal > 1 ? strandIndex / (strandTotal - 1) : 0.5;
+                const distanceAlongSpine = startOffset + progress * usedLength;
+
+                const spineX = width / 2;
+                const spineY = paddingY + distanceAlongSpine;
+
+                // Oscillate horizontally
+                const phase = strand * baseConfig.strandOffset;
+                const oscillationValue = Math.sin(progress * Math.PI * 2 * frequency + phase);
+
+                const helixX = spineX + oscillationValue * helixAmplitude;
+                const helixY = spineY;
+
+                const jitterX = (Math.random() - 0.5) * baseConfig.jitter * 2;
+                const jitterY = (Math.random() - 0.5) * baseConfig.jitter * 2;
+
+                return { x: helixX + jitterX, y: helixY + jitterY };
+            }
+
+            // Original diagonal mode for desktop/landscape
             const paddingX = Math.max(width * basePaddingPercent, helixAmplitude + 70);
             const paddingY = Math.max(height * basePaddingPercent, helixAmplitude + 70);
 
-            const dir = config.diagonalDirection || 1;
+            const dir = baseConfig.diagonalDirection || 1;
             const startX = dir > 0 ? paddingX : width - paddingX;
             const startY = paddingY;
             const endX = dir > 0 ? width - paddingX : paddingX;
@@ -340,29 +481,46 @@
             const perpUnitX = -diagUnitY;
             const perpUnitY = diagUnitX;
 
-            const phase = strand * config.strandOffset;
-            const oscillationValue = Math.sin(progress * Math.PI * 2 * config.frequency + phase);
+            const phase = strand * baseConfig.strandOffset;
+            const oscillationValue = Math.sin(progress * Math.PI * 2 * frequency + phase);
 
             const helixX = spineX + oscillationValue * helixAmplitude * perpUnitX;
             const helixY = spineY + oscillationValue * helixAmplitude * perpUnitY;
 
-            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
-            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+            const jitterX = (Math.random() - 0.5) * baseConfig.jitter * 2;
+            const jitterY = (Math.random() - 0.5) * baseConfig.jitter * 2;
 
             return { x: helixX + jitterX, y: helixY + jitterY };
         }
 
         function getHoneycombPosition(index, total) {
-            const config = CONFIG.patterns.honeycomb;
+            const baseConfig = CONFIG.patterns.honeycomb;
+            const mobileConfig = getPatternConfig('honeycomb');
             const width = window.innerWidth;
             const height = window.innerHeight;
-            const cellSize = config.cellSize;
+            const mobilePortrait = isPortraitMobile();
+
+            // Use mobile cell size if available
+            let cellSize = mobileConfig.cellSize || baseConfig.cellSize;
+            const jitter = mobileConfig.jitter || baseConfig.jitter;
+
+            let cols, rows;
+
+            if (mobilePortrait && mobileConfig.forcedColumns) {
+                // Force specific column count on mobile portrait
+                cols = mobileConfig.forcedColumns;
+                rows = Math.ceil(total / cols);
+
+                // Ensure cells fit within screen width
+                const maxCellWidth = (width - 40) / cols;
+                cellSize = Math.min(cellSize, maxCellWidth);
+            } else {
+                cols = Math.ceil(Math.sqrt(total * (width / height)));
+                rows = Math.ceil(total / cols);
+            }
 
             const hexWidth = cellSize;
             const hexHeight = cellSize * Math.sqrt(3) / 2;
-
-            const cols = Math.ceil(Math.sqrt(total * (width / height)));
-            const rows = Math.ceil(total / cols);
 
             const row = Math.floor(index / cols);
             const col = index % cols;
@@ -371,14 +529,22 @@
 
             const gridWidth = cols * hexWidth;
             const gridHeight = rows * hexHeight;
-            const startX = (width - gridWidth) / 2 + hexWidth / 2;
-            const startY = (height - gridHeight) / 2 + hexHeight / 2;
+
+            // Center the grid, ensure it fits on screen
+            let startX = (width - gridWidth) / 2 + hexWidth / 2;
+            let startY = (height - gridHeight) / 2 + hexHeight / 2;
+
+            // On mobile, ensure positive start positions
+            if (mobilePortrait) {
+                startX = Math.max(hexWidth / 2, startX);
+                startY = Math.max(hexHeight / 2, startY);
+            }
 
             const baseX = startX + col * hexWidth + offsetX;
             const baseY = startY + row * hexHeight;
 
-            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
-            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+            const jitterX = (Math.random() - 0.5) * jitter * 2;
+            const jitterY = (Math.random() - 0.5) * jitter * 2;
 
             return { x: baseX + jitterX, y: baseY + jitterY };
         }
@@ -386,9 +552,23 @@
         let cachedClusterCenters = null;
 
         function calculateClusterCenters(count, width, height) {
+            const mobileConfig = getPatternConfig('socialGraph');
+            const mobilePortrait = isPortraitMobile();
             const padding = Math.min(width, height) * 0.15;
             const centers = [];
 
+            // Use mobile-specific vertical layout
+            if (mobilePortrait && mobileConfig.verticalLayout && mobileConfig.clusterPositions) {
+                mobileConfig.clusterPositions.forEach(p => {
+                    centers.push({
+                        x: p.x * width + (Math.random() - 0.5) * padding * 0.2,
+                        y: p.y * height + (Math.random() - 0.5) * padding * 0.2
+                    });
+                });
+                return centers;
+            }
+
+            // Original desktop layout
             if (count === 4) {
                 const positions = [
                     { x: 0.34, y: 0.22 },
@@ -421,11 +601,15 @@
         }
 
         function getSocialGraphPosition(index, total) {
-            const config = CONFIG.patterns.socialGraph;
+            const baseConfig = CONFIG.patterns.socialGraph;
+            const mobileConfig = getPatternConfig('socialGraph');
             const width = window.innerWidth;
             const height = window.innerHeight;
-            const clusterCount = config.clusterCount;
-            const minSpacing = config.ringSpacing || CONFIG.spacing.preferredDistance;
+            const mobilePortrait = isPortraitMobile();
+            const clusterCount = baseConfig.clusterCount;
+
+            // Use mobile spacing if available
+            const minSpacing = mobileConfig.ringSpacing || baseConfig.ringSpacing || CONFIG.spacing.preferredDistance;
 
             if (!cachedClusterCenters) {
                 cachedClusterCenters = calculateClusterCenters(clusterCount, width, height);
@@ -438,8 +622,8 @@
             const center = cachedClusterCenters[clusterIndex];
 
             if (indexInCluster === 0) {
-                const jitterX = (Math.random() - 0.5) * config.jitter * 2;
-                const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+                const jitterX = (Math.random() - 0.5) * baseConfig.jitter * 2;
+                const jitterY = (Math.random() - 0.5) * baseConfig.jitter * 2;
                 return { x: center.x + jitterX, y: center.y + jitterY };
             }
 
@@ -456,87 +640,135 @@
             const angleStep = (2 * Math.PI) / ringsInThisLayer;
             const angle = positionInLayer * angleStep + layer * 0.618;
 
-            const baseX = center.x + Math.cos(angle) * radius;
-            const baseY = center.y + Math.sin(angle) * radius;
+            let baseX = center.x + Math.cos(angle) * radius;
+            let baseY = center.y + Math.sin(angle) * radius;
 
-            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
-            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+            // Clamp to screen bounds on mobile
+            if (mobilePortrait) {
+                const padding = 30;
+                baseX = Math.max(padding, Math.min(width - padding, baseX));
+                baseY = Math.max(padding, Math.min(height - padding, baseY));
+            }
+
+            const jitterX = (Math.random() - 0.5) * baseConfig.jitter * 2;
+            const jitterY = (Math.random() - 0.5) * baseConfig.jitter * 2;
 
             return { x: baseX + jitterX, y: baseY + jitterY };
         }
 
         function getWaveFlowPosition(index, total) {
-            const config = CONFIG.patterns.waveFlow;
+            const baseConfig = CONFIG.patterns.waveFlow;
+            const mobileConfig = getPatternConfig('waveFlow');
             const width = window.innerWidth;
             const height = window.innerHeight;
-            const waveCount = config.waveCount;
+            const mobilePortrait = isPortraitMobile();
             const minSpacing = CONFIG.spacing.preferredDistance;
+
+            // Use mobile wave count and amplitude if available
+            const waveCount = mobileConfig.waveCount || baseConfig.waveCount;
+            const baseAmplitude = mobileConfig.baseAmplitude || baseConfig.baseAmplitude;
 
             const ringsPerWave = Math.ceil(total / waveCount);
             const waveIndex = Math.floor(index / ringsPerWave);
             const indexInWave = index % ringsPerWave;
             const waveTotal = Math.min(ringsPerWave, total - waveIndex * ringsPerWave);
 
-            // Calculate X position with spacing
+            // Vertical mode for mobile portrait: waves run top-to-bottom
+            if (mobilePortrait && mobileConfig.verticalMode) {
+                // Calculate Y position with spacing along wave
+                const requiredHeight = (waveTotal - 1) * minSpacing;
+                const paddingY = Math.max(height * 0.08, (height - requiredHeight) / 2);
+                const usableHeight = Math.max(requiredHeight, height - 2 * paddingY);
+                const actualSpacing = waveTotal > 1 ? usableHeight / (waveTotal - 1) : 0;
+                let y = paddingY + indexInWave * actualSpacing;
+
+                const progress = waveTotal > 1 ? indexInWave / (waveTotal - 1) : 0.5;
+                const waveNormalized = (waveIndex - (waveCount - 1) / 2) / ((waveCount - 1) / 2 || 1);
+
+                // Amplitude relative to width for horizontal oscillation
+                const waveAmplitude = width * (baseAmplitude + baseConfig.amplitudeVariation * (1 - Math.abs(waveNormalized)));
+                const lengthModulation = 1 - Math.abs(progress - 0.5) * 2 * baseConfig.amplitudeModulation;
+                const modulatedAmplitude = waveAmplitude * Math.max(0.5, lengthModulation);
+
+                // Base X position - waves spread horizontally
+                const waveSpacing = width / (waveCount + 1);
+                const baseX = waveSpacing * (waveIndex + 1);
+                const centerX = width / 2;
+                const convergeOffset = (centerX - baseX) * baseConfig.convergeFactor * (1 - Math.abs(progress - 0.5) * 2);
+
+                // Phase calculations
+                const basePhase = waveIndex * (Math.PI * 0.7);
+                const progressivePhase = progress * Math.PI * baseConfig.phaseProgression;
+                const totalPhase = basePhase + progressivePhase;
+
+                // Primary wave (oscillates horizontally)
+                const primaryWave = Math.sin(progress * Math.PI * 2 * baseConfig.primaryFrequency + totalPhase);
+                const secondaryPhase = totalPhase * 1.5 + Math.PI * 0.3;
+                const secondaryWave = Math.sin(progress * Math.PI * 2 * baseConfig.secondaryFrequency + secondaryPhase);
+
+                let combinedWave = primaryWave + secondaryWave * baseConfig.secondaryStrength;
+                combinedWave = combinedWave / (1 + baseConfig.secondaryStrength);
+
+                if (baseConfig.asymmetry > 0) {
+                    const asymmetryFactor = combinedWave > 0
+                        ? Math.pow(Math.abs(combinedWave), 1 - baseConfig.asymmetry * 0.5)
+                        : -Math.pow(Math.abs(combinedWave), 1 + baseConfig.asymmetry * 0.3);
+                    combinedWave = asymmetryFactor;
+                }
+
+                const waveOffset = combinedWave * modulatedAmplitude;
+                const x = baseX + convergeOffset + waveOffset;
+                const yWobble = Math.sin(progress * Math.PI * 3 + waveIndex) * height * 0.008;
+
+                const jitterX = (Math.random() - 0.5) * baseConfig.jitter * 2;
+                const jitterY = (Math.random() - 0.5) * baseConfig.jitter * 2;
+
+                return { x: x + jitterX, y: y + yWobble + jitterY };
+            }
+
+            // Original horizontal wave mode for desktop/landscape
             const requiredWidth = (waveTotal - 1) * minSpacing;
             const paddingX = Math.max(width * 0.08, (width - requiredWidth) / 2);
             const usableWidth = Math.max(requiredWidth, width - 2 * paddingX);
             const actualSpacing = waveTotal > 1 ? usableWidth / (waveTotal - 1) : 0;
             let x = paddingX + indexInWave * actualSpacing;
 
-            // Progress along the wave (0 to 1)
             const progress = waveTotal > 1 ? indexInWave / (waveTotal - 1) : 0.5;
-
-            // Normalized wave position (-1 to 1 from center)
             const waveNormalized = (waveIndex - (waveCount - 1) / 2) / ((waveCount - 1) / 2 || 1);
 
-            // Per-wave amplitude variation (center waves are larger)
-            const waveAmplitude = height * (config.baseAmplitude + config.amplitudeVariation * (1 - Math.abs(waveNormalized)));
-
-            // Amplitude modulation along wave length (larger in middle)
-            const lengthModulation = 1 - Math.abs(progress - 0.5) * 2 * config.amplitudeModulation;
+            const waveAmplitude = height * (baseAmplitude + baseConfig.amplitudeVariation * (1 - Math.abs(waveNormalized)));
+            const lengthModulation = 1 - Math.abs(progress - 0.5) * 2 * baseConfig.amplitudeModulation;
             const modulatedAmplitude = waveAmplitude * Math.max(0.5, lengthModulation);
 
-            // Base Y position with convergence toward center
             const waveSpacing = height / (waveCount + 1);
             const baseY = waveSpacing * (waveIndex + 1);
             const centerY = height / 2;
-            const convergeOffset = (centerY - baseY) * config.convergeFactor * (1 - Math.abs(progress - 0.5) * 2);
+            const convergeOffset = (centerY - baseY) * baseConfig.convergeFactor * (1 - Math.abs(progress - 0.5) * 2);
 
-            // Phase calculations
             const basePhase = waveIndex * (Math.PI * 0.7);
-            const progressivePhase = progress * Math.PI * config.phaseProgression;
+            const progressivePhase = progress * Math.PI * baseConfig.phaseProgression;
             const totalPhase = basePhase + progressivePhase;
 
-            // Primary wave
-            const primaryWave = Math.sin(progress * Math.PI * 2 * config.primaryFrequency + totalPhase);
-
-            // Secondary harmonic wave
+            const primaryWave = Math.sin(progress * Math.PI * 2 * baseConfig.primaryFrequency + totalPhase);
             const secondaryPhase = totalPhase * 1.5 + Math.PI * 0.3;
-            const secondaryWave = Math.sin(progress * Math.PI * 2 * config.secondaryFrequency + secondaryPhase);
+            const secondaryWave = Math.sin(progress * Math.PI * 2 * baseConfig.secondaryFrequency + secondaryPhase);
 
-            // Combine waves
-            let combinedWave = primaryWave + secondaryWave * config.secondaryStrength;
-            combinedWave = combinedWave / (1 + config.secondaryStrength);
+            let combinedWave = primaryWave + secondaryWave * baseConfig.secondaryStrength;
+            combinedWave = combinedWave / (1 + baseConfig.secondaryStrength);
 
-            // Apply asymmetry (steeper rise, gentler fall)
-            if (config.asymmetry > 0) {
+            if (baseConfig.asymmetry > 0) {
                 const asymmetryFactor = combinedWave > 0
-                    ? Math.pow(Math.abs(combinedWave), 1 - config.asymmetry * 0.5)
-                    : -Math.pow(Math.abs(combinedWave), 1 + config.asymmetry * 0.3);
+                    ? Math.pow(Math.abs(combinedWave), 1 - baseConfig.asymmetry * 0.5)
+                    : -Math.pow(Math.abs(combinedWave), 1 + baseConfig.asymmetry * 0.3);
                 combinedWave = asymmetryFactor;
             }
 
-            // Calculate final Y
             const waveOffset = combinedWave * modulatedAmplitude;
             const y = baseY + convergeOffset + waveOffset;
-
-            // Add slight X variation for organic feel
             const xWobble = Math.sin(progress * Math.PI * 3 + waveIndex) * width * 0.008;
 
-            // Jitter
-            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
-            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+            const jitterX = (Math.random() - 0.5) * baseConfig.jitter * 2;
+            const jitterY = (Math.random() - 0.5) * baseConfig.jitter * 2;
 
             return { x: x + xWobble + jitterX, y: y + jitterY };
         }
