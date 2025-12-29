@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EAMS - CIRCLES: a creative practice</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #fefefe;
+        }
+
+        #ring-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        circle {
+            transition: stroke-width 0.3s ease, stroke 0.3s ease;
+        }
+
+        circle.clicked {
+            stroke-width: inherit;
+        }
+
+        #pattern-controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        #pattern-select {
+            padding: 8px 16px;
+            font-size: 14px;
+            border: 2px solid #333;
+            border-radius: 4px;
+            background: #fefefe;
+            cursor: pointer;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        #pattern-select:hover {
+            border-color: #DA3B32;
+        }
+
+        #pattern-select:focus {
+            border-color: #153D65;
+        }
+
+        .keyboard-hint {
+            display: block;
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <svg id="ring-canvas"></svg>
+
+    <div id="pattern-controls">
+        <select id="pattern-select">
+            <option value="diagonal">Diagonal Scatter</option>
+            <option value="dnaHelix">Double Helix</option>
+            <option value="honeycomb">Honeycomb</option>
+            <option value="socialGraph">Social Graph</option>
+            <option value="waveFlow">Wave Flow</option>
+        </select>
+    </div>
+
+    <script>
+        const CONFIG = {
+            ringCount: 38,
+            colors: ['#000000', '#DA3B32', '#153D65', '#0F5C2F'],
+            ringSize: 50,
+            strokeWidth: 14,
+            animation: {
+                amplitudeMin: 8,
+                amplitudeMax: 25,
+                speedMin: 0.0003,
+                speedMax: 0.0015
+            },
+            mouse: {
+                repelRadius: 120,
+                repelStrength: 0.08,
+                returnSpeed: 0.03
+            },
+            spacing: {
+                minDistance: 120,
+                preferredDistance: 130
+            },
+            patterns: {
+                diagonal: {
+                    relaxationIterations: 50
+                },
+                dnaHelix: {
+                    amplitude: 90,
+                    frequency: 1.8,
+                    edgePadding: 0.12,
+                    strandOffset: Math.PI,
+                    jitter: 7,
+                    diagonalDirection: 1
+                },
+                honeycomb: {
+                    cellSize: 140,
+                    jitter: 8,
+                    fillRatio: 0.8
+                },
+                socialGraph: {
+                    clusterCount: 4,
+                    clusterRadius: 200,
+                    interClusterSpacing: 0.2,
+                    jitter: 8,
+                    ringSpacing: 95
+                },
+                waveFlow: {
+                    waveCount: 4,
+                    baseAmplitude: 0.08,
+                    amplitudeVariation: 0.04,
+                    primaryFrequency: 0.9,
+                    secondaryFrequency: 2.1,
+                    secondaryStrength: 0.3,
+                    phaseProgression: 0.15,
+                    convergeFactor: 0.12,
+                    asymmetry: 0.25,
+                    amplitudeModulation: 0.3,
+                    jitter: 5
+                }
+            }
+        };
+
+        let currentPattern = 'diagonal';
+
+        const rings = [];
+        const svg = document.getElementById('ring-canvas');
+        let mouseX = -1000;
+        let mouseY = -1000;
+
+        function randomRange(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomChoice(array) {
+            return array[Math.floor(Math.random() * array.length)];
+        }
+
+        function applyCollisionRelaxation(positions, iterations) {
+            const minDist = CONFIG.spacing.preferredDistance;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const padding = 80;
+
+            for (let iter = 0; iter < iterations; iter++) {
+                for (let i = 0; i < positions.length; i++) {
+                    for (let j = i + 1; j < positions.length; j++) {
+                        const dx = positions[j].x - positions[i].x;
+                        const dy = positions[j].y - positions[i].y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist < minDist && dist > 0) {
+                            const overlap = (minDist - dist) / 2;
+                            const nx = dx / dist;
+                            const ny = dy / dist;
+
+                            positions[i].x -= nx * overlap * 0.5;
+                            positions[i].y -= ny * overlap * 0.5;
+                            positions[j].x += nx * overlap * 0.5;
+                            positions[j].y += ny * overlap * 0.5;
+                        }
+                    }
+                }
+
+                positions.forEach(p => {
+                    p.x = Math.max(padding, Math.min(width - padding, p.x));
+                    p.y = Math.max(padding, Math.min(height - padding, p.y));
+                });
+            }
+
+            return positions;
+        }
+
+        let cachedDiagonalPositions = null;
+
+        function generateDiagonalPositions(total) {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const centerX = width / 2;
+            const centerY = height / 2;
+            const paddingX = width * 0.12;
+            const paddingY = height * 0.12;
+            const corridorWidth = Math.min(width, height) * 0.5;
+            const positions = [];
+
+            for (let i = 0; i < total; i++) {
+                const progress = i / total;
+                const baseX = progress * (width - paddingX * 2) + paddingX;
+                const baseY = (1 - progress) * (height - paddingY * 2) + paddingY;
+
+                const offsetX = (Math.random() - 0.5) * corridorWidth;
+                const offsetY = (Math.random() - 0.5) * corridorWidth;
+
+                let x = Math.max(paddingX, Math.min(width - paddingX, baseX + offsetX));
+                let y = Math.max(paddingY, Math.min(height - paddingY, baseY + offsetY));
+
+                if (Math.random() < 0.2) {
+                    const pullStrength = 0.4;
+                    x = x + (centerX - x) * pullStrength;
+                    y = y + (centerY - y) * pullStrength;
+                }
+
+                positions.push({ x, y });
+            }
+
+            const iterations = CONFIG.patterns.diagonal.relaxationIterations;
+            return applyCollisionRelaxation(positions, iterations);
+        }
+
+        function getDiagonalPosition(index, total) {
+            if (!cachedDiagonalPositions || cachedDiagonalPositions.length !== total) {
+                cachedDiagonalPositions = generateDiagonalPositions(total);
+            }
+            return cachedDiagonalPositions[index];
+        }
+
+        function getDNAHelixPosition(index, total) {
+            const config = CONFIG.patterns.dnaHelix;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const idealSpacing = CONFIG.spacing.preferredDistance;
+
+            const strand = index % 2;
+            const strandIndex = Math.floor(index / 2);
+            const strandTotal = Math.ceil(total / 2);
+
+            const helixAmplitude = config.amplitude;
+            const basePaddingPercent = config.edgePadding;
+            const paddingX = Math.max(width * basePaddingPercent, helixAmplitude + 70);
+            const paddingY = Math.max(height * basePaddingPercent, helixAmplitude + 70);
+
+            const dir = config.diagonalDirection || 1;
+            const startX = dir > 0 ? paddingX : width - paddingX;
+            const startY = paddingY;
+            const endX = dir > 0 ? width - paddingX : paddingX;
+            const endY = height - paddingY;
+
+            const diagonalDx = endX - startX;
+            const diagonalDy = endY - startY;
+            const diagonalLength = Math.sqrt(diagonalDx * diagonalDx + diagonalDy * diagonalDy);
+
+            const maxSpacing = strandTotal > 1 ? diagonalLength / (strandTotal - 1) : 0;
+            const actualSpacing = Math.min(idealSpacing, maxSpacing);
+            const usedLength = (strandTotal - 1) * actualSpacing;
+            const startOffset = (diagonalLength - usedLength) / 2;
+
+            const progress = strandTotal > 1 ? strandIndex / (strandTotal - 1) : 0.5;
+
+            const distanceAlongDiagonal = startOffset + progress * usedLength;
+            const diagUnitX = diagonalDx / diagonalLength;
+            const diagUnitY = diagonalDy / diagonalLength;
+
+            const spineX = startX + distanceAlongDiagonal * diagUnitX;
+            const spineY = startY + distanceAlongDiagonal * diagUnitY;
+
+            const perpUnitX = -diagUnitY;
+            const perpUnitY = diagUnitX;
+
+            const phase = strand * config.strandOffset;
+            const oscillationValue = Math.sin(progress * Math.PI * 2 * config.frequency + phase);
+
+            const helixX = spineX + oscillationValue * helixAmplitude * perpUnitX;
+            const helixY = spineY + oscillationValue * helixAmplitude * perpUnitY;
+
+            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
+            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+
+            return { x: helixX + jitterX, y: helixY + jitterY };
+        }
+
+        function getHoneycombPosition(index, total) {
+            const config = CONFIG.patterns.honeycomb;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const cellSize = config.cellSize;
+
+            const hexWidth = cellSize;
+            const hexHeight = cellSize * Math.sqrt(3) / 2;
+
+            const cols = Math.ceil(Math.sqrt(total * (width / height)));
+            const rows = Math.ceil(total / cols);
+
+            const row = Math.floor(index / cols);
+            const col = index % cols;
+
+            const offsetX = (row % 2) * (hexWidth / 2);
+
+            const gridWidth = cols * hexWidth;
+            const gridHeight = rows * hexHeight;
+            const startX = (width - gridWidth) / 2 + hexWidth / 2;
+            const startY = (height - gridHeight) / 2 + hexHeight / 2;
+
+            const baseX = startX + col * hexWidth + offsetX;
+            const baseY = startY + row * hexHeight;
+
+            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
+            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+
+            return { x: baseX + jitterX, y: baseY + jitterY };
+        }
+
+        let cachedClusterCenters = null;
+
+        function calculateClusterCenters(count, width, height) {
+            const padding = Math.min(width, height) * 0.15;
+            const centers = [];
+
+            if (count === 4) {
+                const positions = [
+                    { x: 0.34, y: 0.22 },
+                    { x: 0.66, y: 0.18 },
+                    { x: 0.32, y: 0.78 },
+                    { x: 0.68, y: 0.82 }
+                ];
+                positions.forEach(p => {
+                    centers.push({
+                        x: p.x * width + (Math.random() - 0.5) * padding * 0.4,
+                        y: p.y * height + (Math.random() - 0.5) * padding * 0.4
+                    });
+                });
+            } else {
+                const cols = Math.ceil(Math.sqrt(count));
+                const rows = Math.ceil(count / cols);
+                const cellW = (width - 2 * padding) / cols;
+                const cellH = (height - 2 * padding) / rows;
+
+                for (let i = 0; i < count; i++) {
+                    const col = i % cols;
+                    const row = Math.floor(i / cols);
+                    centers.push({
+                        x: padding + cellW * (col + 0.5) + (Math.random() - 0.5) * cellW * 0.3,
+                        y: padding + cellH * (row + 0.5) + (Math.random() - 0.5) * cellH * 0.3
+                    });
+                }
+            }
+            return centers;
+        }
+
+        function getSocialGraphPosition(index, total) {
+            const config = CONFIG.patterns.socialGraph;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const clusterCount = config.clusterCount;
+            const minSpacing = config.ringSpacing || CONFIG.spacing.preferredDistance;
+
+            if (!cachedClusterCenters) {
+                cachedClusterCenters = calculateClusterCenters(clusterCount, width, height);
+            }
+
+            const ringsPerCluster = Math.ceil(total / clusterCount);
+            const clusterIndex = Math.min(Math.floor(index / ringsPerCluster), clusterCount - 1);
+            const indexInCluster = index % ringsPerCluster;
+
+            const center = cachedClusterCenters[clusterIndex];
+
+            if (indexInCluster === 0) {
+                const jitterX = (Math.random() - 0.5) * config.jitter * 2;
+                const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+                return { x: center.x + jitterX, y: center.y + jitterY };
+            }
+
+            let layer = 1;
+            let ringsInPreviousLayers = 1;
+            while (ringsInPreviousLayers + Math.floor(2 * Math.PI * layer * minSpacing / minSpacing) < indexInCluster + 1) {
+                ringsInPreviousLayers += Math.max(1, Math.floor(2 * Math.PI * layer));
+                layer++;
+            }
+
+            const radius = layer * minSpacing;
+            const ringsInThisLayer = Math.max(1, Math.floor(2 * Math.PI * layer));
+            const positionInLayer = indexInCluster - ringsInPreviousLayers + ringsInThisLayer;
+            const angleStep = (2 * Math.PI) / ringsInThisLayer;
+            const angle = positionInLayer * angleStep + layer * 0.618;
+
+            const baseX = center.x + Math.cos(angle) * radius;
+            const baseY = center.y + Math.sin(angle) * radius;
+
+            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
+            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+
+            return { x: baseX + jitterX, y: baseY + jitterY };
+        }
+
+        function getWaveFlowPosition(index, total) {
+            const config = CONFIG.patterns.waveFlow;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const waveCount = config.waveCount;
+            const minSpacing = CONFIG.spacing.preferredDistance;
+
+            const ringsPerWave = Math.ceil(total / waveCount);
+            const waveIndex = Math.floor(index / ringsPerWave);
+            const indexInWave = index % ringsPerWave;
+            const waveTotal = Math.min(ringsPerWave, total - waveIndex * ringsPerWave);
+
+            // Calculate X position with spacing
+            const requiredWidth = (waveTotal - 1) * minSpacing;
+            const paddingX = Math.max(width * 0.08, (width - requiredWidth) / 2);
+            const usableWidth = Math.max(requiredWidth, width - 2 * paddingX);
+            const actualSpacing = waveTotal > 1 ? usableWidth / (waveTotal - 1) : 0;
+            let x = paddingX + indexInWave * actualSpacing;
+
+            // Progress along the wave (0 to 1)
+            const progress = waveTotal > 1 ? indexInWave / (waveTotal - 1) : 0.5;
+
+            // Normalized wave position (-1 to 1 from center)
+            const waveNormalized = (waveIndex - (waveCount - 1) / 2) / ((waveCount - 1) / 2 || 1);
+
+            // Per-wave amplitude variation (center waves are larger)
+            const waveAmplitude = height * (config.baseAmplitude + config.amplitudeVariation * (1 - Math.abs(waveNormalized)));
+
+            // Amplitude modulation along wave length (larger in middle)
+            const lengthModulation = 1 - Math.abs(progress - 0.5) * 2 * config.amplitudeModulation;
+            const modulatedAmplitude = waveAmplitude * Math.max(0.5, lengthModulation);
+
+            // Base Y position with convergence toward center
+            const waveSpacing = height / (waveCount + 1);
+            const baseY = waveSpacing * (waveIndex + 1);
+            const centerY = height / 2;
+            const convergeOffset = (centerY - baseY) * config.convergeFactor * (1 - Math.abs(progress - 0.5) * 2);
+
+            // Phase calculations
+            const basePhase = waveIndex * (Math.PI * 0.7);
+            const progressivePhase = progress * Math.PI * config.phaseProgression;
+            const totalPhase = basePhase + progressivePhase;
+
+            // Primary wave
+            const primaryWave = Math.sin(progress * Math.PI * 2 * config.primaryFrequency + totalPhase);
+
+            // Secondary harmonic wave
+            const secondaryPhase = totalPhase * 1.5 + Math.PI * 0.3;
+            const secondaryWave = Math.sin(progress * Math.PI * 2 * config.secondaryFrequency + secondaryPhase);
+
+            // Combine waves
+            let combinedWave = primaryWave + secondaryWave * config.secondaryStrength;
+            combinedWave = combinedWave / (1 + config.secondaryStrength);
+
+            // Apply asymmetry (steeper rise, gentler fall)
+            if (config.asymmetry > 0) {
+                const asymmetryFactor = combinedWave > 0
+                    ? Math.pow(Math.abs(combinedWave), 1 - config.asymmetry * 0.5)
+                    : -Math.pow(Math.abs(combinedWave), 1 + config.asymmetry * 0.3);
+                combinedWave = asymmetryFactor;
+            }
+
+            // Calculate final Y
+            const waveOffset = combinedWave * modulatedAmplitude;
+            const y = baseY + convergeOffset + waveOffset;
+
+            // Add slight X variation for organic feel
+            const xWobble = Math.sin(progress * Math.PI * 3 + waveIndex) * width * 0.008;
+
+            // Jitter
+            const jitterX = (Math.random() - 0.5) * config.jitter * 2;
+            const jitterY = (Math.random() - 0.5) * config.jitter * 2;
+
+            return { x: x + xWobble + jitterX, y: y + jitterY };
+        }
+
+        const PATTERN_GENERATORS = {
+            diagonal: getDiagonalPosition,
+            dnaHelix: getDNAHelixPosition,
+            honeycomb: getHoneycombPosition,
+            socialGraph: getSocialGraphPosition,
+            waveFlow: getWaveFlowPosition
+        };
+
+        function createRing(id, index, total) {
+            const generator = PATTERN_GENERATORS[currentPattern];
+            const pos = generator(index, total);
+
+            return {
+                id: id,
+                element: null,
+                baseX: pos.x,
+                baseY: pos.y,
+                currentOffsetX: 0,
+                currentOffsetY: 0,
+                repelOffsetX: 0,
+                repelOffsetY: 0,
+                radius: CONFIG.ringSize,
+                color: randomChoice(CONFIG.colors),
+                originalColor: null,
+                strokeWidth: CONFIG.strokeWidth,
+                amplitude: randomRange(CONFIG.animation.amplitudeMin, CONFIG.animation.amplitudeMax),
+                speedX: randomRange(CONFIG.animation.speedMin, CONFIG.animation.speedMax),
+                speedY: randomRange(CONFIG.animation.speedMin, CONFIG.animation.speedMax),
+                phaseX: Math.random() * Math.PI * 2,
+                phaseY: Math.random() * Math.PI * 2,
+                isClicked: false,
+                clickScale: 1,
+                flipProgress: 0,
+                isFlipping: false,
+                flipAngle: 0
+            };
+        }
+
+        function createSVGCircle(ring) {
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', ring.baseX);
+            circle.setAttribute('cy', ring.baseY);
+            circle.setAttribute('r', ring.radius);
+            circle.setAttribute('stroke', ring.color);
+            circle.setAttribute('stroke-width', ring.strokeWidth);
+            circle.setAttribute('fill', 'none');
+            circle.dataset.ringId = ring.id;
+            return circle;
+        }
+
+        function regenerateRings(patternName) {
+            currentPattern = patternName;
+            cachedClusterCenters = null;
+            cachedDiagonalPositions = null;
+            const generator = PATTERN_GENERATORS[patternName];
+
+            rings.forEach((ring, index) => {
+                const pos = generator(index, CONFIG.ringCount);
+                ring.baseX = pos.x;
+                ring.baseY = pos.y;
+                ring.element.setAttribute('cx', pos.x);
+                ring.element.setAttribute('cy', pos.y);
+                ring.repelOffsetX = 0;
+                ring.repelOffsetY = 0;
+            });
+        }
+
+        let isTransitioning = false;
+
+        function transitionToPattern(patternName, duration = 800) {
+            if (isTransitioning || patternName === currentPattern) return;
+            isTransitioning = true;
+            cachedClusterCenters = null;
+            cachedDiagonalPositions = null;
+
+            const generator = PATTERN_GENERATORS[patternName];
+
+            const transitions = rings.map((ring, index) => {
+                const target = generator(index, CONFIG.ringCount);
+                return {
+                    ring: ring,
+                    startX: ring.baseX,
+                    startY: ring.baseY,
+                    targetX: target.x,
+                    targetY: target.y
+                };
+            });
+
+            const startTime = performance.now();
+
+            function animateTransition(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3);
+
+                transitions.forEach(t => {
+                    t.ring.baseX = t.startX + (t.targetX - t.startX) * eased;
+                    t.ring.baseY = t.startY + (t.targetY - t.startY) * eased;
+                    t.ring.element.setAttribute('cx', t.ring.baseX);
+                    t.ring.element.setAttribute('cy', t.ring.baseY);
+                });
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateTransition);
+                } else {
+                    currentPattern = patternName;
+                    isTransitioning = false;
+                }
+            }
+
+            requestAnimationFrame(animateTransition);
+        }
+
+        function initPatternControls() {
+            const select = document.getElementById('pattern-select');
+
+            select.addEventListener('change', (e) => {
+                transitionToPattern(e.target.value);
+            });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.target.tagName === 'SELECT') return;
+
+                const patternKeys = {
+                    '1': 'diagonal',
+                    '2': 'dnaHelix',
+                    '3': 'honeycomb',
+                    '4': 'socialGraph',
+                    '5': 'waveFlow'
+                };
+
+                if (patternKeys[e.key]) {
+                    const pattern = patternKeys[e.key];
+                    select.value = pattern;
+                    transitionToPattern(pattern);
+                }
+            });
+        }
+
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                regenerateRings(currentPattern);
+            }, 250);
+        });
+
+        function init() {
+            const patternNames = Object.keys(PATTERN_GENERATORS);
+            currentPattern = patternNames[Math.floor(Math.random() * patternNames.length)];
+
+            document.getElementById('pattern-select').value = currentPattern;
+
+            for (let i = 0; i < CONFIG.ringCount; i++) {
+                rings.push(createRing(i, i, CONFIG.ringCount));
+            }
+
+            rings.sort((a, b) => b.radius - a.radius);
+
+            rings.forEach(ring => {
+                ring.originalColor = ring.color;
+                ring.element = createSVGCircle(ring);
+                svg.appendChild(ring.element);
+            });
+
+            svg.addEventListener('mousemove', handleMouseMove);
+            svg.addEventListener('mouseleave', handleMouseLeave);
+            svg.addEventListener('click', handleClick);
+
+            initPatternControls();
+            animate(0);
+        }
+
+        function handleMouseMove(e) {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        }
+
+        function handleMouseLeave() {
+            mouseX = -1000;
+            mouseY = -1000;
+        }
+
+        function handleClick(e) {
+            const clickX = e.clientX;
+            const clickY = e.clientY;
+
+            for (let i = rings.length - 1; i >= 0; i--) {
+                const ring = rings[i];
+                const ringX = ring.baseX + ring.currentOffsetX + ring.repelOffsetX;
+                const ringY = ring.baseY + ring.currentOffsetY + ring.repelOffsetY;
+                const dx = clickX - ringX;
+                const dy = clickY - ringY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance <= ring.radius + ring.strokeWidth) {
+                    triggerClickEffect(ring);
+                    break;
+                }
+            }
+        }
+
+        function triggerClickEffect(ring) {
+            ring.isFlipping = true;
+            ring.flipProgress = 0;
+            // Random diagonal: either ~45° or ~-45° (with some variation)
+            ring.flipAngle = (Math.random() < 0.5 ? 1 : -1) * (35 + Math.random() * 20);
+        }
+
+        function animate(timestamp) {
+            rings.forEach(ring => {
+                const floatX = Math.sin(timestamp * ring.speedX + ring.phaseX) * ring.amplitude;
+                const floatY = Math.cos(timestamp * ring.speedY + ring.phaseY) * ring.amplitude;
+
+                ring.currentOffsetX = floatX;
+                ring.currentOffsetY = floatY;
+
+                const ringX = ring.baseX + floatX + ring.repelOffsetX;
+                const ringY = ring.baseY + floatY + ring.repelOffsetY;
+                const dx = mouseX - ringX;
+                const dy = mouseY - ringY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < CONFIG.mouse.repelRadius && distance > 0) {
+                    const force = (CONFIG.mouse.repelRadius - distance) / CONFIG.mouse.repelRadius;
+                    const angle = Math.atan2(dy, dx);
+                    ring.repelOffsetX += Math.cos(angle) * force * CONFIG.mouse.repelStrength * ring.amplitude;
+                    ring.repelOffsetY += Math.sin(angle) * force * CONFIG.mouse.repelStrength * ring.amplitude;
+                }
+
+                ring.repelOffsetX *= (1 - CONFIG.mouse.returnSpeed);
+                ring.repelOffsetY *= (1 - CONFIG.mouse.returnSpeed);
+
+                // Handle flip animation
+                const totalOffsetX = floatX + ring.repelOffsetX;
+                const totalOffsetY = floatY + ring.repelOffsetY;
+                const cx = ring.baseX;
+                const cy = ring.baseY;
+
+                let transform = `translate(${totalOffsetX}, ${totalOffsetY})`;
+
+                if (ring.isFlipping) {
+                    ring.flipProgress += 0.08;
+                    if (ring.flipProgress >= 1) {
+                        ring.isFlipping = false;
+                        ring.flipProgress = 0;
+                    } else {
+                        // Full flip along diagonal axis
+                        const flipScale = Math.cos(ring.flipProgress * Math.PI * 2);
+                        // Transform order: offset, then flip around base center
+                        transform = `translate(${totalOffsetX + cx}, ${totalOffsetY + cy}) rotate(${ring.flipAngle}) scale(${flipScale}, 1) rotate(${-ring.flipAngle}) translate(${-cx}, ${-cy})`;
+                    }
+                }
+
+                ring.element.setAttribute('transform', transform);
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        // Ring control API
+        function getRing(id) {
+            return rings.find(r => r.id === id);
+        }
+
+        function setRingColor(id, color) {
+            const ring = getRing(id);
+            if (ring) {
+                ring.color = color;
+                ring.originalColor = color;
+                ring.element.setAttribute('stroke', color);
+            }
+        }
+
+        function moveRing(id, x, y) {
+            const ring = getRing(id);
+            if (ring) {
+                ring.baseX = x;
+                ring.baseY = y;
+                ring.element.setAttribute('cx', x);
+                ring.element.setAttribute('cy', y);
+            }
+        }
+
+        function pauseRing(id) {
+            const ring = getRing(id);
+            if (ring) {
+                ring.amplitude = 0;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
